@@ -1,0 +1,8 @@
+---
+- hosts: localhost
+  gather_facts: no
+  tasks:
+  - name: Creating an empty file
+    file:
+      path: "/tmp/fileTest"
+      state: touch
