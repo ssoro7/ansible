@@ -1,0 +1,159 @@
+---
+- hosts: localhost
+  gather_facts: no
+  tasks:
+  - name: Check if file vms.csv exists
+    stat:
+      path: /home/adminlocal/systems/vms.csv
+    register: vmsfile
+    # Parse Config files
+  - name: Parse vms.csv input file
+    read_csv:
+       path: /home/adminlocal/systems/vms.csv
+       key: name
+    register: vms
+
+  - name: GET DCR-01 IP
+    set_fact:
+      dcr_01_ip: "{{ item.ip }}"
+    with_items: "{{ architecture.vms }}"
+    when: item.name is search( "{{ hostname }}" )
+
+  - name: GET VIRTUAL MACHINE
+    set_fact:
+      vm: "{{ item }}"
+    with_items: "{{ architecture.vms }}"
+    when: item.name is search( "{{ hostname }}" )  
+
+  - name: CLONE AND CONFIGURE MACHINE
+    vmware_guest:
+      hostname: "{{ vcenter_server }}"
+      username: "{{ vcenter_user }}"
+      password: "{{ vcenter_pass }}"
+      validate_certs: False
+      name: "{{ vm.name }}"
+      template: "{{ template }}"
+      datacenter: "{{ datacenter_name }}"
+      folder: /{{ datacenter_name }}/vm
+      cluster: "{{ cluster_name }}"
+      datastore: "{{ vm.vm_datastore }}"
+      convert: thin
+      networks:
+      - name: "{{ vm.vm_network }}"
+        ip: "{{ vm.ip }}"
+        netmask: "{{ vm.netmask }}"
+        gateway: "{{ vm.gateway }}"
+        type: static
+      customization:
+        hostname: "{{ vm.name }}"
+        dns_servers: [ "{{ dcr_01_ip }}" ]
+        dns_suffix:
+        - cecodom.lan
+      state: poweredon
+      wait_for_ip_address: yes
+      disk:
+      - size_gb: "{{ vm.vm_disk01_size }}"
+        datastore: "{{ vm.vm_datastore }}"
+      hardware:
+        memory_mb: "{{ vm.vm_mem_size }}"
+        num_cpus: "{{ vm.vm_num_cpus }}"
+    delegate_to: localhost
+
+  - name: WAIT UNTIL SERVER IS UP
+    wait_for: 
+      port: 22
+      host: "{{ vm.ip }}"
+      timeout: 100
+      connect_timeout: 5
+      sleep: 5
+      delay: 3
+    delegate_to: localhost
+
+- name: MOVE NETPLAN TO 00
+  hosts: "{{ hostname }}"
+  tasks:
+     - name: move network config 99 to 00
+       become: yes
+       become_user: root
+       ignore_errors: yes
+       command: mv /etc/netplan/99-netcfg-vmware.yaml /etc/netplan/00-installer-config.yaml
+
+
+- name: COPY CONFIGURATION TO VM
+  hosts: "{{ hostname }}"
+  become: yes
+  tasks:
+  - name: Create a directory conf if it does not exist
+    ansible.builtin.file:
+      path: /opt/cecoco/vm-config/conf
+      state: directory
+      mode: '0755'
+  - name: Create a directory tmp if it does not exist
+    ansible.builtin.file:
+      path: /opt/cecoco/vm-config/tmp
+      state: directory
+      mode: '0755'
+  - name: Create a directory bin if it does not exist
+    ansible.builtin.file:
+      path: /opt/cecoco/vm-config/bin
+      state: directory
+      mode: '0755'
+  - name: Create a directory resuources if it does not exist
+    ansible.builtin.file:
+      path: /opt/cecoco/vm-config/resources/conf/
+      state: directory
+      mode: '0755'
+  - name: Create a directory resuources if it does not exist
+    ansible.builtin.file:
+      path: /opt/cecoco/deployAndInstall/work
+      state: directory
+      mode: '0755'
+  - name: Copy multiple files in Ansible with different permissions
+    copy:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+      mode: "{{item.mode}}"
+    with_items:
+     - { src: 'files/{{ config_files }}/server.info',dest: '/opt/cecoco/vm-config/conf/server.info', mode: '0775'}       
+     - { src: 'files/mypass.kdb',dest: '/opt/cecoco/vm-config/tmp/mypass.kdb', mode: '0775'}
+     - { src: 'files/passnew',dest: '/opt/cecoco/vm-config/tmp/passnew', mode: '0775'}
+     - { src: 'files/{{ config_files }}/hosts',dest: '/etc/hosts', mode: '0644'}
+     #- { src: 'files/{{ config_files }}/cecoco.list',dest: '/opt/cecoco/vm-config/resources/conf/cecoco.list', mode: '0755'}
+     #- { src: 'files/{{ config_files }}/cecoco.list',dest: '/etc/apt/sources.list.d/cecoco.list', mode: '0755'}
+     #- { src: 'files/{{ config_files }}/cc.list',dest: '/etc/apt/sources.list.d/cc.list', mode: '0755'}
+     - { src: "{{ architecture_path }}",dest: '/opt/cecoco/deployAndInstall/work/architecture.json', mode: '0755'}  
+     
+- name: COPY ARCHITECTURE FOR ADM
+  hosts: "{{ hostname }}"
+  become: yes
+  tasks:
+  - name: Create a directory resuources if it does not exist        
+    ansible.builtin.file:
+      path: /opt/cecoco/cam-cst/conf
+      state: directory
+      mode: '0775'
+  - name: Copy multiple files in Ansible with different permissions
+    copy:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+      mode: "{{item.mode}}"
+    with_items:
+     - { src: "{{ architecture_path }}",dest: '/opt/cecoco/cam-cst/conf/architecture.json', mode: '0644'} 
+
+- name: RESIZE PRINCIPAL DISK
+  hosts: "{{ hostname }}"
+  tasks:
+     - name: resize_disk.sh
+       become: yes
+       become_user: root
+       script: files/resize_disk.sh
+       register: myoutput
+
+- name: ADD REPOSITORY KEY
+  hosts: "{{ hostname }}"
+  tasks:
+     - name: add repository key
+       become: yes
+       become_user: root
+       script: files/addRepoKey.sh
+       register: myoutput2
