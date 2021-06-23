@@ -1,0 +1,17 @@
+---
+- hosts: 172.26.100.125
+  gather_facts: no
+  strategy: debug
+  tasks:
+  - name: OVA
+    community.vmware.vmware_deploy_ovf:
+      hostname: "{{ vcenter_server }}"
+      username: "{{ vcenter_user }}"
+      password: "{{ vcenter_pass }}"
+      #datacenter: Datacenter1
+      #esxi_hostname: "{{ vcenter_server }}"
+      datastore: "{{ vm_datastore }}"
+      validate_certs: no
+      networks: "{u'Inside 130':u'Inside'}"
+      #ovf: /home/adminlocal/sbase-brm_1.0.0.ova
+      ovf: /home/adminlocal/ovf/sbase-brm-20.ova

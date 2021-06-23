@@ -1,0 +1,3 @@
+- hosts: ssoro
+  tasks:
+    - action: ping
