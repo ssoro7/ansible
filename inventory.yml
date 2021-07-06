@@ -1,0 +1,13 @@
+all:
+  hosts:
+    localhost:
+  children:
+    webservers:
+      hosts:
+        sadm-01:
+        sadm-02:
+    servers:
+      hosts:
+        sdcr-01:
+        sdcr-02:
+        sdcr-03:
